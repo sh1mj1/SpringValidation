@@ -355,3 +355,5 @@ URL 경로 변경: `validation/v1/` →  `validation/v2/`
         - `items.html`
 
 참고: 이 때 cmd + R 과 cmd + shift + R 을 사용하여 더 쉽게 바꿀 수 있습니다!! (윈도우는 ctrl + R & ctrl + shift + R)
+
+
