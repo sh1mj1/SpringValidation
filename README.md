@@ -729,3 +729,118 @@ new FieldError("item", "price", item.getPrice(), false, null, null,
 메시지가 사용자 입장에서는 굉장히 불친절합니다! 이러한 오류 메시지를 어떻게 처리해야 할지 스프링에서 좋은 기능을 제공합니다.
 
 다음 글에서는 오류 코드와 메시지 처리 에 대해서 알아봅니다
+
+
+
+# 9. 오류 코드와 메시지 처리 1
+
+우리는  오류 메시지를 체계적으로 다루는 법을 익힐 것입니다.
+
+`FieldError` 생성자
+
+FieldError 는 두 가지 생성자를 제공한다.
+
+```java
+
+public FieldError(String objectName, String field, String defaultMessage);
+public FieldError(String objectName, String field, 
+									@Nullable Object rejectedValue, boolean bindingFailure, 
+									@Nullable String[] codes, @Nullable Object[] arguments, 
+									@Nullable String defaultMessage)
+```
+
+파라미터 목록
+
+- `objectName` : 오류가 발생한 객체 이름
+- `field` : 오류 필드
+- `rejectedValue` : 사용자가 입력한 값(거절된 값)
+- `bindingFailure` : 타입 오류 같은 바인딩 실패인지, 검증 실패인지 구분 값
+- `codes` : 메시지 코드
+- `arguments` : 메시지에서 사용하는 인자
+- `defaultMessage` : 기본 오류 메시지
+
+`FieldError` , `ObjectError` 의 생성자는 `codes` , `arguments` 를 제공한다. 이것은 오류 발생시 오류 코드로 메시지를 찾기 위해 사용된다.
+
+errors 메시지 파일 생성
+
+- `messages.properties` 를 사용해도 되지만, 오류 메시지를 구분하기 쉽게 `errors.properties` 라는
+별도의 파일로 관리해보자.
+
+먼저 스프링 부트가 해당 메시지 파일을 인식할 수 있게 다음 설정을 추가한다. 
+
+이렇게 하면 `messages.properties` , `errors.properties` 두 파일을 모두 인식한다. 
+
+(생략하면 `messages.properties` 를 기본으로 인식한다.)
+
+스프링 부트 메시지 설정 추가 - `application.properties`
+
+```java
+spring.messages.basename=messages,errors
+```
+
+`errors.properties` 추가 - `src/main/resources/errors.properties`
+
+```java
+required.item.itemName=상품 이름은 필수입니다.
+range.item.price=가격은 {0} ~ {1} 까지 허용합니다.
+max.item.quantity=수량은 최대 {0} 까지 허용합니다.
+totalPriceMin=가격 * 수량의 합은 {0}원 이상이어야 합니다. 현재 값 = {1}
+```
+
+참고: errors_en.properties 파일을 생성하면 오류 메시지도 국제화 처리를 할 수 있다.
+
+이제 errors 에 등록한 메시지를 사용하도록 코드를 변경해보자.
+
+`ValidationItemControllerV2` - `addItemV3()` 추가
+
+```java
+@PostMapping("/add")
+public String addItemV3(@ModelAttribute Item item, BindingResult bindingResult, RedirectAttributes redirectAttributes) {
+
+    if (!StringUtils.hasText(item.getItemName())) {
+        bindingResult.addError(new FieldError("item", "itemName", item.getItemName(), false, new String[]{"required.item.itemName"}, null, null));
+    }
+    if (item.getPrice() == null || item.getPrice() < 1000 || item.getPrice() > 1000000) {
+        bindingResult.addError(new FieldError("item", "price", item.getPrice(), false, new String[]{"range.item.price"}, new Object[]{1000, 1000000}, null));
+    }
+    if (item.getQuantity() == null || item.getQuantity() >= 9999) {
+        bindingResult.addError(new FieldError("item", "quantity", item.getQuantity(), false, new String[]{"max.item.quantity"}, new Object[]{9999}, null));
+    }
+
+    // 특정 필드가 아닌 복합 룰 검증
+    if (item.getPrice() != null && item.getQuantity() != null) {
+        int resultPrice = item.getPrice() * item.getQuantity();
+        if (resultPrice < 10000) {
+            bindingResult.addError(new ObjectError("item", new String[]{"totalPriceMin"}, new Object[]{10000, resultPrice}, null));
+        }
+    }
+
+    // 검증에 실패하면 다시 입력 폼으로
+    if (bindingResult.hasErrors()) {
+        log.info("errors={}", bindingResult);
+        return "validation/v2/addForm";
+    }
+
+    // 성공 로직
+    Item savedItem = itemRepository.save(item);
+    redirectAttributes.addAttribute("itemId", savedItem.getId());
+    redirectAttributes.addAttribute("status", true);
+    return "redirect:/validation/v2/items/{itemId}";
+}
+```
+
+핵심 부분을 뜯어 봅시다.
+
+```java
+//range.item.price=가격은 {0} ~ {1} 까지 허용합니다.
+new FieldError("item", "price", item.getPrice(), false, 
+								new String[] {"range.item.price"}, new Object[]{1000, 1000000}
+```
+
+- `codes` : `required.item.itemName` 를 사용해서 메시지 코드를 지정한다. 메시지 코드는 하나가 아니라
+배열로 여러 값을 전달할 수 있는데, 순서대로 매칭해서 처음 매칭되는 메시지가 사용된다.
+- `arguments` : `Object[]{1000, 1000000}` 를 사용해서 코드의 `{0}` , `{1}` 로 치환할 값을 전달한다
+
+실행
+
+실행해보면 메시지, 국제화에서 학습한 `MessageSource` 를 찾아서 메시지를 조회하는 것을 확인할 수 있습니다.
