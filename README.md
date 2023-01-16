@@ -357,3 +357,255 @@ URL 경로 변경: `validation/v1/` →  `validation/v2/`
 참고: 이 때 cmd + R 과 cmd + shift + R 을 사용하여 더 쉽게 바꿀 수 있습니다!! (윈도우는 ctrl + R & ctrl + shift + R)
 
 
+# 6. BindingResult1
+
+지금부터 스프링이 제공하는 검증 오류 처리 방법을 알아보자. 여기서 핵심은 BindingResult이다. 우선 코드로 확인해보자.
+
+`ValidationItemControllerV2` - `addItemV1`
+
+```java
+@PostMapping("/add")
+public String addItemV1(@ModelAttribute Item item, BindingResult bindingResult, RedirectAttributes redirectAttributes , Model model) {
+
+    if (!StringUtils.hasText(item.getItemName())) {
+        bindingResult.addError(new FieldError("item", "itemName", "상품 이름은 필수 입니다."));
+    }
+    if (item.getPrice() == null || item.getPrice() < 1000 || item.getPrice() > 1000000) {
+        bindingResult.addError(new FieldError("item", "price", "가격은 1,000 ~ 1,000,000 까지 허용합니다."));
+    }
+    if (item.getQuantity() == null || item.getQuantity() >= 9999) {
+        bindingResult.addError(new FieldError("item", "quantity", "수량은 최대 9,999 까지 허용합니다."));
+    }
+
+    // 특정 필드가 아닌 복합 룰 검증
+    if (item.getPrice() != null && item.getQuantity() != null) {
+        int resultPrice = item.getPrice() * item.getQuantity();
+        if (resultPrice < 10000) {
+            bindingResult.addError(new ObjectError("item", "가격 + 수량의 합은 10,000 원 이상이어야 합니다. 현재 값= " + resultPrice));
+        }
+    }
+
+    // 검증에 실패하면 다시 입력 폼으로
+    if (bindingResult.hasErrors()) {
+        log.info("errors={}", bindingResult);
+        return "validation/v2/addForm";
+    }
+
+    // 성공 로직
+    Item savedItem = itemRepository.save(item);
+    redirectAttributes.addAttribute("itemId", savedItem.getId());
+    redirectAttributes.addAttribute("status", true);
+    return "redirect:/validation/v2/items/{itemId}";
+}
+```
+
+코드 변경
+
+메서드 이름 변경: `addItem()` → `addItemV1()`
+
+주의
+
+`BindingResult bindingResult` 파라미터의 위치는 `@ModelAttribute Item item` 다음에 와야 한다!!!
+
+`FieldError` - 필드 오류
+
+```java
+if (!StringUtils.hasText(item.getItemName())) {
+    bindingResult.addError(new FieldError("item", "itemName", "상품 이름은 필수 입니다."));
+}
+```
+
+필드에 오류가 있으면 `FieldError` 객체를 생성해서 `bindingResult` 에 담아두면 된다.
+
+`FieldError` 생성자 요약
+
+```java
+public FieldError(String objectName, String field, String defaultMessage) {}
+```
+
+- `objectName` : `@ModelAttribute` 이름
+- `field` : 오류가 발생한 필드 이름
+- `defaultMessage` : 오류 기본 메시지
+
+`ObjectError` - 글로벌 오류
+
+```java
+bindingResult.addError(new ObjectError("item", "가격 + 수량의 합은 10,000 원 이상이어야 합니다. 현재 값= " + resultPrice));
+```
+
+특정 필드를 넘어서는 오류가 있으면 `ObjectError` 객체를 생성해서 `bindingResult` 에 담아두면 된다.
+
+`ObjectError` 생성자 요약
+
+```java
+public ObjectError(String objectName, String defaultMessage) {}
+```
+
+- `objectName` : `@ModelAttribute` 의 이름
+- `defaultMessage` : 오류 기본 메시지
+
+`validation/v2/addForm.html` 수정
+
+```html
+<!DOCTYPE HTML>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <link th:href="@{/css/bootstrap.min.css}"
+          href="../css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .container {
+            max-width: 560px;
+        }
+
+        .field-error {
+            border-color: #dc3545;
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="py-5 text-center">
+        <h2 th:text="#{page.addItem}">상품 등록</h2>
+    </div>
+    <form action="item.html" th:action th:object="${item}" method="post">
+
+        <div th:if="${#fields.hasGlobalErrors()}">
+            <p class="field-error" th:each="err: ${#fields.globalErrors()}" th:text="${err}">글로벌 오류 메시지</p>
+        </div>
+
+        <div>
+            <label for="itemName" th:text="#{label.item.itemName}">상품명</label>
+            <input type="text" id="itemName" th:field="*{itemName}"
+                   th:errorclass="field-error" class="form-control" placeholder="이름을 입력하세요">
+            <div class="field-error" th:errors="*{itemName}">상품명 오류</div>
+        </div>
+
+        <div>
+            <label for="price" th:text="#{label.item.price}">가격</label>
+            <input type="text" id="price" th:field="*{price}"
+                   th:errorclass="field-error" class="form-control" placeholder="이름을 입력하세요">
+            <div class="field-error" th:errors="*{price}">가격 오류</div>
+        </div>
+        <div>
+            <label for="quantity" th:text="#{label.item.quantity}">수량</label>
+            <input type="text" id="quantity" th:field="*{quantity}"
+                   th:errorclass="field-error" class="form-control" placeholder="이름을 입력하세요">
+            <div class="field-error" th:errors="*{quantity}">수량 오류</div>
+        </div>
+        <hr class="my-4">
+        <div class="row">
+            <div class="col">
+                <button class="w-100 btn btn-primary btn-lg" type="submit"
+                        th:text="#{button.save}">저장
+                </button>
+            </div>
+            <div class="col">
+                <button class="w-100 btn btn-secondary btn-lg"
+                        onclick="location.href='items.html'"
+                        th:onclick="|location.href='@{/validation/v2/items}'|"
+                        type="button" th:text="#{button.cancel}">취소
+                </button>
+            </div>
+        </div>
+    </form>
+</div> <!-- /container -->
+</body>
+</html>
+```
+
+이전 버전에 비해서 타임리프도 굉장히 간단해 진 부분들이 보입니다!!!
+
+### 타임리프 스프링 검증 오류 통합 기능
+
+- 타임리프는 스프링의 `BindingResult` 를 활용해서 편리하게 검증 오류를 표현하는 기능을 제공한다.
+- `#fields` : `#fields` 로 `BindingResult` 가 제공하는 검증 오류에 접근할 수 있다.
+- `th:errors` : 해당 필드에 오류가 있는 경우에 태그를 출력한다. `th:if` 의 편의 버전이다.
+- `th:errorclass` : `th:field` 에서 지정한 필드에 오류가 있으면 class 정보를 추가한다.
+
+- 검증과 오류 메시지 공식 메뉴얼
+    - https://www.thymeleaf.org/doc/tutorials/3.0/thymeleafspring.html#validation-and-error-messages
+
+글로벌 오류 처리
+
+```html
+<div th:if="${#fields.hasGlobalErrors()}">
+    <p class="field-error" th:each="err: ${#fields.globalErrors()}" th:text="${err}">글로벌 오류 메시지</p>
+</div>
+```
+
+필드 오류 처리
+
+```html
+<input type="text" id="itemName" th:field="*{itemName}"
+       th:errorclass="field-error" class="form-control" placeholder="이름을 입력하세요">
+<div class="field-error" th:errors="*{itemName}">상품명 오류</div>
+```
+
+이전 검증 V1 의 `addForm` 에 비해 꽤 간단하고 편리해진 것을 확인할 수 있습니다!!
+
+# 7. BindingResult2
+
+스프링이 제공하는 검증 오류를 보관하는 객체이다. 검증 오류가 발생하면 여기에 보관하면 된다.
+
+`BindingResult` 가 있으면 `@ModelAttribute` 에 데이터 바인딩 시 오류가 발생해도 컨트롤러가 호출된다!
+
+예) `@ModelAttribute` 에 바인딩 시 타입 오류가 발생하면?
+
+`BindingResult` 가 없으면 400 오류가 발생하면서 컨트롤러가 호출되지 않고, 오류 페이지로 이동한다.
+
+`BindingResult` 가 있으면 오류 정보( `FieldError` )를 `BindingResult` 에 담아서 컨트롤러를 정상 호출한다
+
+### BindingResult 에 검증 오류를 적용하는 3가지 방법
+
+- `@ModelAttribute` 의 객체에 타입 오류 등으로 바인딩이 실패하는 경우 스프링이 `FieldError` 생성해서 `BindingResult` 에 넣어준다.
+- 개발자가 직접 넣어준다.
+- `Validator` 사용 이것은 뒤에서 설명
+
+### 타입 오류 확인
+
+숫자가 입력되어야 할 곳에 문자를 입력해서 타입을 다르게 해서 `BindingResult` 를 호출하고 `bindingResult` 의 값을 확인해보자.
+
+아래 그림치럼 숫자가 입력되어야 할 가격에 qqq 을 입력했다.
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/cfaca4a0-b882-40dd-836b-609eee58103b/Untitled.png)
+
+아래와 같은 오류를 로그로 확인할 수 있습니다!
+
+```java
+Field error in object 'item' on field 'price': rejected value [qqq]; codes [typeMismatch.item.price,typeMismatch……중략……[Failed to convert property value of type 'java.lang.String' to required type 'java.lang.Integer' … 생략
+```
+
+주의
+
+- `BindingResult` 는 검증할 대상 바로 다음에 와야한다. 순서가 중요하다.
+    - 예를 들어서 `@ModelAttribute Item item` , 바로 다음에 `BindingResult` 가 와야 한다.
+    - `BindingResult` 는 `Model` 에 자동으로 포함된다
+
+### BindingResult와 Errors
+
+`org.springframework.validation.Errors`
+
+`org.springframework.validation.BindingResult`
+
+`BindingResult` 는 인터페이스이고, `Errors` 인터페이스를 상속받고 있다.
+
+실제 넘어오는 구현체는 `BeanPropertyBindingResult` 라는 것인데, 둘다 구현하고 있으므로 `BindingResult` 대신에 `Errors` 를 사용해도 된다. 
+
+`Errors` 인터페이스는 단순한 오류 저장과 조회 기능을 제공한다. `BindingResult` 는 여기에 더해서 추가적인 기능들을 제공한다. 
+
+`addError()` 도 `BindingResult` 가 제공하므로 여기서는 `BindingResult` 를 사용하자. 주로 관례상 `BindingResult` 를 많이 사용한다.
+
+### 정리
+
+- `BindingResult` , `FieldError` , `ObjectError` 를 사용해서 오류 메시지를 처리하는 방법을 알아보았습니다.
+- 그런데 오류가 발생하는 경우 고객이 입력한 내용이 모두 사라집니다.
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/98ba1d0e-64c5-438d-bfbc-a9d0e00ccb2e/Untitled.png)
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/b155d35f-65bf-4a2c-b751-7d4e97310f53/Untitled.png)
+
+위 그림처럼 price 에 100 을 입력하고 저장을 하였는데 오류가 발생하면서 기존에 입력한 price 값이 지워지고 있습니다. 
+
+이것이 지워지지 않도록 하기 위해서 어떻게 해야 할까요?  이것을 해결해 봅시다.
