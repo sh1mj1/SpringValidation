@@ -844,3 +844,106 @@ new FieldError("item", "price", item.getPrice(), false,
 실행
 
 실행해보면 메시지, 국제화에서 학습한 `MessageSource` 를 찾아서 메시지를 조회하는 것을 확인할 수 있습니다.
+
+# 10. 오류 코드와 메시지 처리 2
+
+그런데 `FieldError` , `ObjectError` 는 다루기 너무 번거롭습니다.
+
+혹시 오류 코드도 좀 더 자동화 할 수 있지 않을까요? 예) `item.itemName` 과 같은 형식으로 말이죠!
+
+컨트롤러에서 `BindingResult` 는 검증해야 할 객체인 `target` 바로 다음에 와야 합니다. 우리의 경우 model 이었죠.
+
+즉, `BindingResult` 는 이미 본인이 검증해야 할 객체인 `target` 을 알고 있다는 뜻이 됩니다.
+
+다음을 컨트롤러에서 실행해보자.
+
+```java
+log.info("objectName={}", bindingResult.getObjectName());
+log.info("target={}", bindingResult.getTarget()
+```
+
+결과
+
+```java
+objectName=item // @ModelAttribute name
+target=Item(id=null, itemName=상품, price=100, quantity=1234)
+```
+
+### **rejectValue(), reject()**
+
+- `BindingResult`가 제공하는 `rejectValue()`, `reject()`를 사용하면 `FieldError`, `ObjectError`를 직접 생성하지 않고 깔끔하게 검증 오류를 다룰 수 있다.
+
+`ValidationItemControllerV2` - `addItemV4()` 추가
+
+```java
+@PostMapping("/add")
+public String addItemV4(@ModelAttribute Item item, BindingResult bindingResult, RedirectAttributes redirectAttributes) {
+
+    log.info("objectName={}", bindingResult.getObjectName());
+    log.info("target={}", bindingResult.getTarget());
+
+    if (!StringUtils.hasText(item.getItemName())) {
+        bindingResult.rejectValue("itemName", "required");
+    }
+    if (item.getPrice() == null || item.getPrice() < 1000 || item.getPrice() > 1000000) {
+        bindingResult.rejectValue("price", "range", new Object[]{1000, 1000000}, null);
+    }
+    if (item.getQuantity() == null || item.getQuantity() >= 9999) {
+        bindingResult.rejectValue("quantity", "max", new Object[]{9999}, null);
+    }
+
+    // 특정 필드가 아닌 복합 룰 검증
+    if (item.getPrice() != null && item.getQuantity() != null) {
+        int resultPrice = item.getPrice() * item.getQuantity();
+        if (resultPrice < 10000) {
+            bindingResult.reject("totalPriceMin", new Object[]{10000, resultPrice}, null);
+        }
+    }
+
+    // 검증에 실패하면 다시 입력 폼으로
+    if (bindingResult.hasErrors()) {
+        log.info("errors={}", bindingResult);
+        return "validation/v2/addForm";
+    }
+
+    // 성공 로직
+    Item savedItem = itemRepository.save(item);
+    redirectAttributes.addAttribute("itemId", savedItem.getId());
+    redirectAttributes.addAttribute("status", true);
+    return "redirect:/validation/v2/items/{itemId}";
+}
+```
+
+이렇게 변경해도 오류 메시지가 정상 출력됩니다.
+
+이상한 점은 우리는 `errors.properties` 에 있는 코드를 직접 입력하지 않았다는 점입니다.
+
+**rejectValue()**
+
+```java
+void rejectValue(@Nullable String field, String errorCode, 
+								@Nullable Object[] errorArgs, @Nullable String defaultMessage);
+```
+
+**reject()**
+
+```java
+void reject(String errorCode, @Nullable Object[] errorArgs, @Nullable String defaultMessage);
+```
+
+- `field`: 오류 필드명
+- `errorCode`: 오류 코드(메시지에 등록된 오류 코드가 아닌 `messageResolver`를 위한 오류 코드)
+- `errorArgs`: 오류 메시지에서 `{0}`을 치환하기 위한 값
+- `defaultMessage`: 오류 메시지를 찾을 수 없을 때 사용하는 기본 메시지
+
+```java
+bindingResult.rejectValue("price", "range", new Object[]{1000, 1000000}, null)
+```
+
+`BindingResult`는 어떤 객체를 대상으로 검증하는지 `target`을 이미 알고 있으므로 `target(item)`에 대한 정보는 없어도 됩니다.
+
+우리가 `FieldError()` 를 직접 다룰 때는 오류 코드를 `range.item.price` 처럼 `errors.properties` 에 있는 key 값을 접누 입력해서 사용했습니다.
+
+그런데  `rejectValue()` 을 사용하고 부터는 오류 코드를 `range` 로 간단하게 입력했습니다. 그런데도 오류 메시지를 찾아서 출력하는 모습입니다.
+
+어떤 규칙으로 이를 가능하게 하는 것일까요?  이를 알기 위해서는 `MessageCodesResolver`  을 이해해야 합니다.
