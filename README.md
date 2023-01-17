@@ -1718,3 +1718,203 @@ URL 경로도 `validation/v2/` 에서 `validation/v3/` 으로 바꾼다.
 `addForm.html` , `editForm.html` , `item.html` , `items.html`
 
 이렇게 변경한 후 바로 Bean Validation 스프링을 적용해봅시다.
+
+
+# 3. Bean Validation 스프링 적용
+
+`ValidationItemControllerV3` 코드 수정
+
+```java
+package hello.itemservice.web.validation;
+
+import hello.itemservice.domain.item.Item;
+import hello.itemservice.domain.item.ItemRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.util.StringUtils;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
+import org.springframework.validation.ObjectError;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.WebDataBinder;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import java.util.List;
+
+@Controller
+@RequestMapping("/validation/v3/items")
+@RequiredArgsConstructor
+@Slf4j
+public class ValidationItemControllerV3 {
+
+    private final ItemRepository itemRepository;
+
+    @GetMapping
+    public String items(Model model) {
+        List<Item> items = itemRepository.findAll();
+        model.addAttribute("items", items);
+        return "validation/v3/items";
+    }
+
+    @GetMapping("/{itemId}")
+    public String item(@PathVariable long itemId, Model model) {
+        Item item = itemRepository.findById(itemId);
+        model.addAttribute("item", item);
+        return "validation/v3/item";
+    }
+
+    @GetMapping("/add")
+    public String addForm(Model model) {
+        model.addAttribute("item", new Item());
+        return "validation/v3/addForm";
+    }
+
+    @PostMapping("/add")
+    public String addItem(@Validated @ModelAttribute Item item, BindingResult bindingResult, RedirectAttributes redirectAttributes) {
+
+        if (bindingResult.hasErrors()) {
+            log.info("errors={}", bindingResult);
+            return "validation/v3/addForm";
+        }
+
+        // 성공 로직
+        Item savedItem = itemRepository.save(item);
+        redirectAttributes.addAttribute("itemId", savedItem.getId());
+        redirectAttributes.addAttribute("status", true);
+        return "redirect:/validation/v3/items/{itemId}";
+    }
+
+    @GetMapping("/{itemId}/edit")
+    public String editForm(@PathVariable Long itemId, Model model) {
+        Item item = itemRepository.findById(itemId);
+        model.addAttribute("item", item);
+        return "validation/v3/editForm";
+    }
+
+    @PostMapping("/{itemId}/edit")
+    public String edit(@PathVariable Long itemId, @ModelAttribute Item item) {
+        itemRepository.update(itemId, item);
+        return "redirect:/validation/v3/items/{itemId}";
+    }
+
+}
+```
+
+기존에 등록한 `ItemValidator`를 제거했습니다.
+
+`init(WebDataBinder dataBinder)` 메서드도 제거했습니다.
+
+실행
+
+[http://localhost:8080/validation/v3/items](http://localhost:8080/validation/v3/items) 
+
+실행해보면 애노테이션 기반의 Bean Validation이 정상 동작하는 것을 확인할 수 있다.
+
+참고
+
+특정 필드의 범위를 넘어서는 검증(가격 * 수량의 합은 10,000원 이상) 기능이 빠졌는데, 이 부분은 조금 뒤에 설명한다
+
+### 스프링 MVC는 어떻게 Bean Validator를 사용?
+
+스프링 부트가 `spring-boot-starter-validation` 라이브러리를 넣으면 자동으로 **Bean Validator**를
+인지하고 스프링에 통합한다.
+
+### 스프링 부트는 자동으로 글로벌 Validator로 등록한다.
+
+`LocalValidatorFactoryBean` 을 글로벌 Validator로 등록한다. 이 Validator는 `@NotNull` 같은 애노테이션을 보고 검증을 수행한다. 
+
+이렇게 글로벌 Validator가 적용되어 있기 때문에, `@Valid` , `@Validated` 만 적용하면 된다.
+
+검증 오류가 발생하면, `FieldError` , `ObjectError` 를 생성해서 `BindingResult` 에 담아준다.
+
+주의!
+다음과 같이 직접 글로벌 Validator를 직접 등록하면 스프링 부트는 Bean Validator를 글로벌 `Validator` 로 등록하지 않는다. 따라서 애노테이션 기반의 빈 검증기가 동작하지 않는다. 
+
+참고
+
+검증시 `@Validated` `@Valid` 둘다 사용가능하다. `javax.validation.@Valid` 를 사용하려면 `build.gradle` 의존관계 추가가 필요하다. (이전에 추가했다.)
+
+`implementation 'org.springframework.boot:spring-boot-starter-validation'`
+
+`@Validated` 는 스프링 전용 검증 애노테이션이고, `@Valid` 는 자바 표준 검증 애노테이션이다. 
+
+둘 중 아무거나 사용해도 동일하게 작동하지만, `@Validated` 는 내부에 `groups` 라는 기능을 포함하고 있다. 이 부분은 조금 뒤에 다시 설명하겠다.
+
+### 검증 순서
+
+1. `@ModelAttribute` 각각의 필드에 타입 변환 시도
+    1. 성공하면 다음으로
+    2. 실패하면 `typeMismatch` 로 `FieldError` 추가
+2. Validator 적용
+
+### 바인딩에 성공한 필드만 Bean Validation 적용
+
+BeanValidator는 바인딩에 실패한 필드는 BeanValidation을 적용하지 않는다.
+
+생각해보면 타입 변환에 성공해서 바인딩에 성공한 필드여야 BeanValidation 적용이 의미 있다. 
+
+(일단 모델 객체에 바인딩 받는 값이 정상으로 들어와야 검증도 의미가 있다.)
+
+`@ModelAttribute` → 각각의 필드 타입 변환시도 →  변환에 성공한 필드만 BeanValidation 적용
+
+예)
+
+- `itemName` 에 문자 "A" 입력 → 타입 변환 성공  → `itemName` 필드에 BeanValidation 적용
+- `price` 에 문자 "A" 입력  → "A"를 숫자 타입 변환 시도 실패 →  typeMismatch FieldError 추가 → `price` 필드는 BeanValidation 적용 X
+
+
+# 4. Bean Validation 에러 코드
+
+Bean Validation이 기본으로 제공하는 오류 메시지를 좀 더 자세히 변경하고 싶다면?
+
+Bean Validation을 적용하고 `bindingResult` 에 등록된 검증 오류 코드를 보자.
+
+오류 코드가 애노테이션 이름으로 등록된다. 마치 `typeMismatch` 와 유사하다.
+
+`NotBlank` 라는 오류 코드를 기반으로 `MessageCodesResolver` 를 통해 다양한 메시지 코드가 순서대로 생성된다.
+
+**@NotBlank**
+
+- NotBlank.item.itemName
+- NotBlank.itemName
+- NotBlank.java.lang.String
+- NotBlank
+
+**@Range**
+
+- Range.item.price
+- Range.price
+- Range.java.lang.Integer
+- Range
+
+### 메시지 등록
+
+`errors.properties` - 이제 메시지를 등록해보자.
+
+```java
+#Bean Validation 추가
+NotBlank={0} 공백X
+Range={0}, {2} ~ {1} 허용
+Max={0}, 최대 {1}
+```
+
+`{0}` 은 필드명이고, `{1}` , `{2}` ...은 각 애노테이션 마다 다르다.
+
+**실행**
+실행해보면 방금 등록한 메시지가 정상 적용되는 것을 확인할 수 있다.
+
+### BeanValidation 메시지 찾는 순서
+
+1. 생성된 메시지 코드 순서대로 `messageSource` 에서 메시지 찾기
+2. 애노테이션의 `message` 속성 사용 (예 -  `@NotBlank(message = "공백! {0}")` )
+3. 라이브러리가 제공하는 기본 값을 사용한다. ( 예 -  공백일 수 없습니다.)
+
+### 애노테이션의 message 사용 예
+
+```java
+@NotBlank(message = "공백은 입력할 수 없습니다.")
+private String itemName;
+```
