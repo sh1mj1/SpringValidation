@@ -1170,3 +1170,58 @@ if (!StringUtils.hasText(item.getItemName())) {
 ```java
 ValidationUtils.rejectIfEmptyOrWhitespace(bindingResult, "itemName", "required");
 ```
+
+### 정리
+
+1. `rejectValue()` 호출
+2. `MessageCodesResolver` 를 사용해서 검증 오류 코드로 메시지 코드들을 생성
+3. `new FieldError()` 를 생성하면서 메시지 코드들을 보관
+4. `th:erros` 에서 메시지 코드들로 메시지를 순서대로 메시지에서 찾고, 보여준다.
+
+
+# 14. 오류 코드와 메시지 처리 6
+
+### **스프링이 직접 만든 오류 메시지 처리**
+
+- 검증 오류 코드는 다음과 같이 2가지로 나눌 수 있습니다.
+    1. 개발자가 직접 설정한 오류 코드 → `rejectValue()`를 직접 호출
+    2. 스프링이 직접 검증 오류에 추가한 경우(주로 타입 정보가 맞지 않음)
+
+이제부터 지금까지 배운 메시지 코드 전략의 강점을 확인해봅시다.
+
+`price` 필드에 문자 “A” 을 입력했을 때
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/e61ee99e-7aec-4276-8830-46a73bf7f271/Untitled.png)
+
+로그를 확인해보면 `BindingResult` 에 `FieldError` 가 담겨있고, 아래 메시지 코드들이 생성된 것을 확인할 수 있습니다.
+
+```java
+codes[typeMismatch.item.price,
+			typeMismatch.price,
+			typeMismatch.java.lang.Integer,
+			typeMismatch]
+```
+
+다음과 같이 4가지 메시지 코드가 입력되어 있다.
+
+- `typeMismatch.item.price`
+- `typeMismatch.price`
+- `typeMismatch.java.lang.Integer`
+- `typeMismatch`
+
+스프링은 타입 오류가 발생하면 알아서 `typeMismatch` 라는 오류 코드를 사용합니다! 이 오류 코드가 `MessageCodeResolver` 을 통과하면서 4자기 메시지 코드가 실행됩니다.!
+
+우리는 아직 `errors.properties` 에 메시지 코드가 없기 때문에 스프링이 생성한 기본 메시지가 출력되는 것이지요.
+
+그렇다면 `errors.properties` 에 아래 내용을 추가해봅시다.
+
+```java
+typeMismatch.java.lang.Integer=숫자를 입력해주세요.
+typeMismatch=타입 오류입니다.
+```
+
+이후 다시 실행하면 아래와 같은 결과가 됩니다.
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/93412351-1d0b-4958-bf55-a6f269538ef0/Untitled.png)
+
+결과적으로 우리는 소스코드를 하나도 건드리지 않고 원하는 메시지를 단계별로 설정할 수 있는 것입니다.
