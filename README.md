@@ -1443,3 +1443,252 @@ public class ItemServiceApplication implements WebMvcConfigurer {
  는 `@Validated` 는 스프링 전용 검증 애노테이션이고, `@Valid` 는 자바 표준 검증 애노테이션이다.
 
 자세한 내용은 다음 Bean Validation에서 설명하겠다.
+
+
+#
+#
+#
+
+
+# 1. Bean Validation 소개,
+
+### Bean Validation - 소개
+
+검증 기능을 지금처럼 매번 코드로 작성하는 것은 상당히 번거롭습니다. 
+
+특히 특정 필드에 대한 검증 로직은 대부분 빈 값인지 아닌지, 특정 크기를 넘는지 아닌지와 같이 매우 일반적인 로직입니다.. 다음 코드를 봅시다.
+
+`Item`
+
+```java
+package hello.itemservice.domain.item;
+
+import lombok.Data;
+import org.hibernate.validator.constraints.Range;
+
+import javax.validation.constraints.Max;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+@Data
+public class Item {
+
+    private Long id;
+
+    @NotBlank
+    private String itemName;
+
+    @NotNull
+    @Range(min=1000, max = 1000000)
+    private Integer price;
+
+    @NotNull
+    @Max(9999)
+    private Integer quantity;
+
+    public Item() {
+    }
+
+    public Item(String itemName, Integer price, Integer quantity) {
+        this.itemName = itemName;
+        this.price = price;
+        this.quantity = quantity;
+    }
+}
+```
+
+이런 검증 로직을 모든 프로젝트에 적용할 수 있게 공통화하고, 표준화 한 것이 바로 Bean Validation
+이다.
+
+Bean Validation을 잘 활용하면, 애노테이션 하나로 검증 로직을 매우 편리하게 적용할 수 있다.
+
+### Bean Validation 이란?
+
+먼저 Bean Validation은 특정한 구현체가 아니라 Bean Validation 2.0(JSR-380)이라는 기술 표준이다.
+
+쉽게 이야기해서 **검증 애노테이션과 여러 인터페이스의 모음**이다. 
+
+마치 JPA가 표준 기술이고 그 구현체로 하이버네이트가 있는 것과 같다.
+
+Bean Validation을 구현한 기술중에 일반적으로 사용하는 구현체는 하이버네이트 Validator이다. 
+
+이름이 하이버네이트가 붙어서 그렇지 ORM과는 관련이 없다.
+
+### 하이버네이트 Validator 관련 링크
+
+공식 사이트: [http://hibernate.org/validator/](http://hibernate.org/validator/)
+
+공식 메뉴얼: [https://docs.jboss.org/hibernate/validator/6.2/reference/en-US/html_single/](https://docs.jboss.org/hibernate/validator/6.2/reference/en-US/html_single/)
+
+검증 애노테이션 모음:  [https://docs.jboss.org/hibernate/validator/6.2/reference/en-US/](https://docs.jboss.org/hibernate/validator/6.2/reference/en-US/)
+html_single/#validator-defineconstraints-spec
+
+### Bean Validation - 시작
+
+Bean Validation 기능을 어떻게 사용하는지 코드로 알아보자. 먼저 스프링과 통합하지 않고, 순수한 Bean
+Validation 사용법 부터 테스트 코드로 알아보자.
+
+### Bean Validation 의존관계 추가
+
+`build.gradle`
+
+```java
+implementation 'org.springframework.boot:spring-boot-starter-validation'
+```
+
+spring-boot-starter-validation 의존관계를 추가하면 라이브러리가 추가 된다.
+
+**Jakarta Bean Validation**
+
+`jakarta.validation-api` : Bean Validation 인터페이스
+
+`hibernate-validator` 구현체
+
+### 테스트 코드 작성
+
+`Item` - Bean Validation 애노테이션 적용
+
+```java
+package hello.itemservice.domain.item;
+
+import lombok.Data;
+import org.hibernate.validator.constraints.Range;
+
+import javax.validation.constraints.Max;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+@Data
+public class Item {
+
+    private Long id;
+
+    @NotBlank
+    private String itemName;
+
+    @NotNull
+    @Range(min=1000, max = 1000000)
+    private Integer price;
+
+    @NotNull
+    @Max(9999)
+    private Integer quantity;
+
+    public Item() {
+    }
+
+    public Item(String itemName, Integer price, Integer quantity) {
+        this.itemName = itemName;
+        this.price = price;
+        this.quantity = quantity;
+    }
+}
+```
+
+**검증 애노테이션**
+
+`@NotBlank` : 빈값 + 공백만 있는 경우를 허용하지 않는다.
+
+`@NotNull` : null 을 허용하지 않는다.
+
+`@Range(min = 1000, max = 1000000)` : 범위 안의 값이어야 한다.
+
+`@Max(9999)` : 최대 9999까지만 허용한다.
+
+**참고**
+
+`javax.validation.constraints.NotNull`
+
+`org.hibernate.validator.constraints.Range`
+
+`javax.validation` 으로 시작하면 특정 구현에 관계없이 제공되는 표준 인터페이스이고, `org.hibernate.validator` 로 시작하면 하이버네이트 validator 구현체를 사용할 때만 제공되는 검증 기능이다. 
+
+**실무에서 대부분 하이버네이트 validator를 사용하므로 자유롭게 사용해도 된다**
+
+`BeanValidationTest` - Bean Validation 테스트 코드 작성
+
+```java
+package hello.itemservice.message.validation;
+
+import hello.itemservice.domain.item.Item;
+import org.junit.jupiter.api.Test;
+
+import javax.validation.ConstraintViolation;
+import javax.validation.Validation;
+import javax.validation.Validator;
+import javax.validation.ValidatorFactory;
+import java.util.Set;
+
+public class BeanValidationTest {
+
+    @Test
+    void beanValidation(){
+        ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
+        Validator validator = factory.getValidator();
+
+        Item item = new Item();
+        item.setItemName(" ");
+        item.setPrice(0);
+        item.setQuantity(10000);
+
+        Set<ConstraintViolation<Item>> violations = validator.validate(item);
+        for (ConstraintViolation<Item> violation : violations) {
+            System.out.println("violation=" + violation);
+            System.out.println("violation.message=" + violation.getMessage());
+
+        }
+    }
+}
+```
+
+**검증기 생성**
+
+다음 코드와 같이 검증기를 생성한다. 이후 스프링과 통합하면 우리가 직접 이런 코드를 작성하지는 않으므로, 이렇게 사용하는구나 정도만 참고하자.
+
+```java
+ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
+Validator validator = factory.getValidator();
+```
+
+**검증 실행**
+
+검증 대상( item )을 직접 검증기에 넣고 그 결과를 받는다. Set 에는 ConstraintViolation 이라는 검증 오류가 담긴다. 따라서 결과가 비어있으면 검증 오류가 없는 것이다.
+
+```java
+Set<ConstraintViolation<Item>> violations = validator.validate(item);
+```
+
+**실행결과** 
+
+```java
+violation={
+		interpolatedMessage='공백일 수 없습니다', 
+		propertyPath=itemName,
+		rootBeanClass=class hello.itemservice.domain.item.Item,
+		messageTemplate='{javax.validation.constraints.NotBlank.message}'}
+
+violation.message=공백일 수 없습니다
+
+violation={
+		interpolatedMessage='9999 이하여야 합니다', 
+		propertyPath=quantity,
+		rootBeanClass=class hello.itemservice.domain.item.Item,
+		messageTemplate='{javax.validation.constraints.Max.message}'}
+
+violation.message=9999 이하여야 합니다
+
+violation={
+		interpolatedMessage='1000에서 1000000 사이여야 합니다',
+		propertyPath=price, rootBeanClass=class hello.itemservice.domain.item.Item,
+		messageTemplate='{org.hibernate.validator.constraints.Range.message}'}
+
+violation.message=1000에서 1000000 사이여야 합니다
+```
+
+`ConstraintViolation` 출력 결과를 보면, 검증 오류가 발생한 객체, 필드, 메시지 정보등 다양한 정보를 확인할 수 있다.
+
+**정리**
+
+이렇게 빈 검증기(Bean Validation)를 직접 사용하는 방법을 알아보았다. 아마 지금까지 배웠던 스프링 MVC 검증 방법에 빈 검증기를 어떻게 적용하면 좋을지 여러가지 생각이 들 것이다. 
+
+**스프링은 이미 개발자를 위해 빈 검증기를 스프링에 완전히 통합해두었다.**
