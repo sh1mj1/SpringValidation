@@ -1083,3 +1083,90 @@ codes [totalPriceMin.item,
 - 타임리프 화면을 렌더링 할 때 `th:errors`가 실행
 - 만약 오류가 있다면 생성된 오류 메시지 코드를 순서대로 돌아가면서 메시지를 검색, 없으면 디폴트 메시지를 출력
 
+# 13. 오류 코드와 메시지 처리 5
+
+### **오류 코드 관리 전략**
+
+- `MessageCodesResolver`는 `required.item.itemName`처럼 구체적인 것을 먼저 만들어주고 나서, `required`처럼 덜 구체적인 것을 가장 나중에 생성합니다.
+- 이렇게 크게 중요하지 않은 메시지는 범용성 있는 `requried` 같은 메시지로 끝내고, 정말 중요한 메시지는 꼭 필요할 때 구체적으로 적어서 사용하는 방식이 더 효과적입니다.
+
+그렇다면 실제 실습을 통해 오류 코드 전략을 도입해봅시다.
+
+`errors.properties`
+
+```java
+#required.item.itemName=상품 이름은 필수입니다.
+#range.item.price=가격은 {0} ~ {1} 까지 허용합니다.
+#max.item.quantity=수량은 최대 {0} 까지 허용합니다.
+#totalPriceMin=가격 * 수량의 합은 {0}원 이상이어야 합니다. 현재 값 = {1}
+
+#==ObjectError==
+#Level1
+totalPriceMin.item=상품의 가격 * 수량의 합은 {0}원 이상이어야 합니다. 현재 값 = {1}
+
+#Level2 - 생략
+totalPriceMin=전체 가격은 {0}원 이상이어야 합니다. 현재 값 = {1}
+
+#==FieldError==
+#Level1
+required.item.itemName=상품 이름은 필수입니다.
+range.item.price=가격은 {0} ~ {1} 까지 허용합니다.
+max.item.quantity=수량은 최대 {0} 까지 허용합니다.
+
+#Level2 - 생략
+
+#Level3
+required.java.lang.String = 필수 문자입니다.
+required.java.lang.Integer = 필수 숫자입니다.
+min.java.lang.String = {0} 이상의 문자를 입력해주세요.
+min.java.lang.Integer = {0} 이상의 숫자를 입력해주세요.
+range.java.lang.String = {0} ~ {1} 까지의 문자를 입력해주세요.
+range.java.lang.Integer = {0} ~ {1} 까지의 숫자를 입력해주세요.
+max.java.lang.String = {0} 까지의 문자를 허용합니다.
+max.java.lang.Integer = {0} 까지의 숫자를 허용합니다.
+
+#Level4
+required = 필수 값 입니다.
+min= {0} 이상이어야 합니다.
+range= {0} ~ {1} 범위를 허용합니다.
+max= {0} 까지 허용합니다.
+```
+
+크게 객체 오류와 필드 오류를 나누었다. 그리고 범용성에 따라 레벨을 나누어두었다. `itemName` 의 경우 `required` 검증 오류 메시지가 발생하면 다음 코드 순서대로 메시지가 생성된다.
+
+1. `required.item.itemName`
+2. `required.itemName`
+3. `required.java.lang.String`
+4. `required`
+
+그리고 이렇게 생성된 메시지 코드를 기반으로 순서대로 `MessageSource` 에서 메시지에서 찾는다. 구체적인 것에서 덜 구체적인 순서대로 찾는다. 메시지에 1번이 없으면 2번을 찾고, 2번이 없으면 3번을 찾는다.
+
+이렇게 되면 만약에 크게 중요하지 않은 오류 메시지는 기존에 정의된 것을 그냥 재활용 하면 된다!
+
+실행
+
+- Level 1 전부 주석해보기
+- Level 2,3 전부 주석해보기
+- Level 4 전부 주석해보기 - 못 찾으면 코드에 작성한 디폴트 메시지를 사용한다.
+
+Object 오류도 Level1, Level2로 재활용 가능하다.
+
+우리가 의도한 대로 적절한 결과가 나오는 것을 확인할 수 있습니다!!
+
+### **ValidationUtils**
+
+`ValidationUtils` 사용 전
+
+```java
+if (!StringUtils.hasText(item.getItemName())) {
+		bindingResult.rejectValue("itemName", "required", "기본: 상품 이름은 필수입니다.");
+}
+```
+
+`ValidationUtils` 사용 후
+
+`ValidationUtils` 을 사용하면 아래처럼 한줄로 가능해집니다. 제공하는 기능은 `Empty` 혹은 공백 같은 단순한 기능만 제공합니다.
+
+```java
+ValidationUtils.rejectIfEmptyOrWhitespace(bindingResult, "itemName", "required");
+```
