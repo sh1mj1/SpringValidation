@@ -1692,3 +1692,29 @@ violation.message=1000에서 1000000 사이여야 합니다
 이렇게 빈 검증기(Bean Validation)를 직접 사용하는 방법을 알아보았다. 아마 지금까지 배웠던 스프링 MVC 검증 방법에 빈 검증기를 어떻게 적용하면 좋을지 여러가지 생각이 들 것이다. 
 
 **스프링은 이미 개발자를 위해 빈 검증기를 스프링에 완전히 통합해두었다.**
+
+# 2. 프로젝트 준비 V3
+
+앞서 **4. 검증1**  시리즈에서 만든 기능을 유지하기 위해, 컨트롤러와 템플릿 파일을 복사하자.
+
+`ValidationItemControllerV3` 컨트롤러 생성
+
+`hello.itemservice.web.validation.ValidationItemControllerV2` 복사 후에  `hello.itemservice.web.validation.ValidationItemControllerV3` 붙여넣기
+
+URL 경로도 `validation/v2/` 에서 `validation/v3/` 으로 바꾼다.
+
+**템플릿 파일 복사**
+
+`validation/v2` 디렉토리의 모든 템플릿 파일을 `validation/v3` 디렉토리로 복사
+
+`/resources/templates/validation/v2/` 을 `/resources/templates/validation/v3/` 로
+
+`addForm.html` , `editForm.html` , `item.html` , `items.html`
+
+`/resources/templates/validation/v3/` 하위 4개 파일 모두 URL 경로 변경: 
+
+`validation/v2/` 에서 `validation/v3/` 으로
+
+`addForm.html` , `editForm.html` , `item.html` , `items.html`
+
+이렇게 변경한 후 바로 Bean Validation 스프링을 적용해봅시다.
