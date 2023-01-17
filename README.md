@@ -2105,3 +2105,228 @@ public String edit(@PathVariable Long itemId, @Validated @ModelAttribute Item it
 ![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/9ff3489b-7918-4f91-86bb-a5da8a8f4a48/Untitled.png)
 
 잘 수정이 된 모습입니다.
+
+# 7. Bean Validation 한계
+
+### 수정시 검증 요구사항
+
+데이터를 등록할 때와 수정할 때는 요구사항이 다를 수 있다.
+
+**등록시 기존 요구사항**
+
+- 타입 검증
+    - 가격, 수량에 문자가 들어가면 검증 오류 처리
+- 필드 검증
+    - 상품명: 필수, 공백X
+    - 가격: 1000원 이상, 1백만원 이하
+    - 수량: 최대 9999
+- 특정 필드의 범위를 넘어서는 검증
+    - 가격 * 수량의 합은 10,000원 이상
+
+**수정시 요구사항**
+
+등록 시에는 `quantity` 수량을 최대 9999까지 등록할 수 있지만 수정시에는 수량을 무제한으로 변경할 수 있다.
+
+등록 시에는 `id` 에 값이 없어도 되지만, 수정시에는 `id` 값이 필수이다.
+
+### **수정 요구사항 적용**
+
+수정시에는 `Item` 에서 `id` 값이 필수이고, `quantity` 도 무제한으로 적용할 수 있다.
+
+`Item`
+
+```java
+package hello.itemservice.domain.item;
+
+import lombok.Data;
+import org.hibernate.validator.constraints.Range;
+import org.hibernate.validator.constraints.ScriptAssert;
+
+import javax.validation.constraints.Max;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+@Data
+public class Item {
+
+    @NotNull
+    private Long id;
+
+    @NotBlank
+    private String itemName;
+
+    @NotNull
+    @Range(min=1000, max = 1000000)
+    private Integer price;
+
+    @NotNull
+    private Integer quantity;
+
+    public Item() {
+    }
+
+    public Item(String itemName, Integer price, Integer quantity) {
+        this.itemName = itemName;
+        this.price = price;
+        this.quantity = quantity;
+    }
+}
+```
+
+수정 요구사항을 적용하기 위해 다음을 적용했다.
+
+`id` : `@NotNull` 추가
+
+`quantity` : `@Max(9999)` 제거
+
+**참고**
+
+현재 구조에서는 수정시 `item` 의 `id` 값은 항상 들어있도록 로직이 구성되어 있다. 그래서 검증하지 않아도 된다고 생각할 수 있다. 그런데 HTTP 요청은 언제든지 악의적으로 변경해서 요청할 수 있으므로 서버에서 항상 검증해야 한다. 
+
+예를 들어서 HTTP 요청을 변경해서 `item` 의 `id` 값을 삭제하고 요청할 수도 있다. 따라서 최종 검증은 서버에서 진행하는 것이 안전한다.
+
+### 수정을 실행
+
+정상 동작을 확인할 수 있다.
+
+**그런데 수정은 잘 동작하지만 등록에서 문제가 발생한다.**
+
+등록시에는 `id` 에 값도 없고, `quantity` 수량 제한 최대 값인 9999도 적용되지 않는 문제가 발생한다.
+
+**등록시 화면이 넘어가지 않으면서 다음과 같은 오류를 볼 수 있다.**
+
+`'id': rejected value [null];`
+
+왜냐하면 등록시에는 `id` 에 값이 없다. 따라서 `@NotNull id` 를 적용한 것 때문에 검증에 실패하고 다시 폼 화면으로 넘어온다. 결국 등록 자체도 불가능하고, 수량 제한도 걸지 못한다.
+
+결과적으로 item 은 등록과 수정에서 검증 조건의 충돌이 발생하고, 등록과 수정은 같은 BeanValidation 을 적용할 수 없다. 
+
+이 문제를 어떻게 해결할 수 있을까요?
+
+# 8. Bean Validation - groups
+
+동일한 모델 객체를 등록할 때와 수정할 때 각각 다르게 검증하는 방법을 알아보자.
+
+**방법 2가지**
+
+- BeanValidation의 groups 기능을 사용한다.
+- Item을 직접 사용하지 않고, ItemSaveForm, ItemUpdateForm 같은 폼 전송을 위한 별도의 모델
+객체를 만들어서 사용한다.
+
+**BeanValidation groups 기능 사용**
+
+이런 문제를 해결하기 위해 Bean Validation 은 groups 라는 기능을 제공한다.
+
+예를 들어서 등록시에 검증할 기능과 수정시에 검증할 기능을 각각 그룹으로 나누어 적용할 수 있다. 
+
+코드로 확인해보자.
+
+### groups 적용
+
+`SaveCheck` - 저장용 groups 생성
+
+```java
+package hello.itemservice.domain.item;
+
+public interface SaveCheck {
+}
+```
+
+`UpdateCheck` - 수정용 groups 생성
+
+```java
+package hello.itemservice.domain.item;
+
+public interface UpdateCheck {
+}
+```
+
+`Item` - groups 적용
+
+```java
+package hello.itemservice.domain.item;
+
+import lombok.Data;
+import org.hibernate.validator.constraints.Range;
+
+import javax.validation.constraints.Max;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+@Data
+public class Item {
+
+    @NotNull(groups = UpdateCheck.class) // 수정 시에만 적용
+    private Long id;
+
+    @NotBlank(groups = {SaveCheck.class, UpdateCheck.class})
+    private String itemName;
+
+    @NotNull(groups = {SaveCheck.class, UpdateCheck.class})
+    @Range(min = 1000, max = 1000000, groups = {SaveCheck.class, UpdateCheck.class})
+    private Integer price;
+
+    @NotNull(groups = {SaveCheck.class, UpdateCheck.class})
+    private Integer quantity;
+
+    public Item() {
+    }
+
+    public Item(String itemName, Integer price, Integer quantity) {
+        this.itemName = itemName;
+        this.price = price;
+        this.quantity = quantity;
+    }
+}
+```
+
+`ValidationItemControllerV3` - 저장 로직에 SaveCheck Groups 적용
+
+```java
+@PostMapping("/add")
+public String addItemV2(@Validated(SaveCheck.class) @ModelAttribute Item item, BindingResult bindingResult, RedirectAttributes redirectAttributes) {
+		...
+}
+```
+
+`addItem()` 를 복사해서 `addItemV2()` 생성, `SaveCheck.class` 적용
+
+기존 `addItem()`  의 `@PostMapping("/add")` 주석처리
+
+`ValidationItemControllerV3` - 수정 로직에 UpdateCheck Groups 적용
+
+```java
+@PostMapping("/{itemId}/edit")
+public String editV2(@PathVariable Long itemId, @Validated(UpdateCheck.class)
+											@ModelAttribute Item item, BindingResult bindingResult) {
+											 //...
+}
+```
+
+`edit()` 를 복사해서 `editV2()` 생성, `UpdateCheck.class` 적용
+
+기존 `edit()` 의  `@PostMapping("/{itemId}/edit")` 주석처리
+
+이렇게 적용하면 잘 실행되는 것을 확인 할 수 있습니다.
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/06286d6d-8b39-4fcc-9441-e6c199cf52b4/Untitled.png)
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/8489a2e4-0e15-4c28-9e02-07ec61d6181b/Untitled.png)
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/b4a34333-877e-4495-a5c0-943ab3beddda/Untitled.png)
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/3f54eaf2-0b3a-40f5-81ab-ce1f164ecb03/Untitled.png)
+
+처음 Item 을 Add 할 때는 수량을 9999 개 보다 더 많이 하지 못했지만 
+
+이 후 Item 을 Update 할 때는 수량을 9999 개 보다 더 많이 할 수 있는 모습입니다.
+
+### 정리
+
+groups 기능을 사용해서 등록과 수정시에 각각 다르게 검증을 할 수 있었다. 
+
+그런데 groups 기능을 사용하니 Item 은 물론이고, 전반적으로 복잡도가 올라갔다.
+
+사실 groups 기능은 실제 잘 사용되지는 않습니다!! 
+
+그 이유는 실무에서는 주로 다음에 등장하는 등록용 폼 객체와 수정용 폼 객체를 분리해서 사용하기 때문이다.
